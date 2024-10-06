@@ -1,0 +1,6 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+torch==2.4.1
+torchsummary==1.5.1
+gymnasium==0.29.1
