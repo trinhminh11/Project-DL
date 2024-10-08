@@ -1,12 +1,15 @@
 # Standard library imports
-from typing import Callable, Any
+from typing import Any
 
 # Third-party imports
+import torch
 import torch.nn as nn
 from torch import Tensor
 import numpy as np
 import matplotlib.pyplot as plt
 import gymnasium as gym
+from gymnasium.envs.registration import EnvSpec
+
 
 class ConvBn(nn.Module):
     r'''
@@ -226,7 +229,7 @@ class EnvWithTransform(gym.Wrapper):
         reset(**kwargs) -> tuple[Any, dict[str, Any]]:
             Resets the environment and the transformations if set.
     """
-    def __init__(self, env):
+    def __init__(self, env: gym.Env):
         """
         Initializes the utility class with the given environment.
 
@@ -398,8 +401,20 @@ class EnvWithTransform(gym.Wrapper):
             self.reward_transform.reset(**kwargs)
 
         return self.env.reset(**kwargs)
+    
+def init_weights(m):
+    if type(m) == nn.Linear:
+        torch.nn.init.xavier_normal_(m.weight)
+        m.bias.data.fill_(0)
 
-from gymnasium.envs.registration import EnvSpec
+def Discrete2Box(action_space: gym.spaces.Discrete) -> gym.spaces.Box:
+    if isinstance(action_space, gym.spaces.Box):
+        return action_space
+    elif isinstance(action_space, gym.spaces.Discrete):
+        return gym.spaces.Box(low=0, high=1, shape=(action_space.n, ))
+    else:
+        raise TypeError('action_space must be gym.spaces.Discrete or gym.spaces.Box')
+    
 
 def make(
         id: str | EnvSpec,
