@@ -150,56 +150,6 @@ class Normalize(Transform):
     def __repr__(self):
         return f'Normalize(mean={self.mean}, std={self.std})'
 
-class CarRacingState(Compose):
-    def __init__(self, *args) -> None:
-        super().__init__(
-            type('WHC2CWH', (), {'__call__': lambda self, X: X.transpose([2, 0, 1])})(), 
-            type('Div255', (), {'__call__': lambda self, X: X/255})(), 
-            Normalize(0.5, 0.5)
-        )
-
-        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(3, 96, 96))
-    
-    def __call__(self, X: np.ndarray):
-        if not isinstance(X, np.ndarray):
-            raise TypeError('X must be np.ndarray')
-    
-        if X.shape != (96, 96, 3):
-            raise ValueError('X must have shape (96, 96, 3)')
-
-        X = X.transpose([2, 0, 1]) / 255
-        X = (X - 0.5) / 0.5
-        
-        return X
-
-class CarRacingAction(Transform):
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2, ))
-
-    def __call__(self, X: np.ndarray) -> np.ndarray:
-        if not isinstance(X, np.ndarray):
-            raise TypeError('X must be np.ndarray')
-    
-        if X.shape != (2, ):
-            raise ValueError('X must have shape (2, )')
-        
-        return np.array([X[0], X[1], 0]) if X[1]>0 else np.array([X[0], 0, -X[1]])
-
-class CarRacingReward(Transform):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def __call__(self, X: np.ndarray) -> np.ndarray:
-        if not isinstance(X, np.ndarray):
-            raise TypeError('X must be np.ndarray')
-    
-        if X.shape != (1, ):
-            raise ValueError('X must have shape (1, )')
-        
-        return X
-
 class EnvWithTransform(gym.Wrapper):
     """
     A wrapper for gym environments that allows for transformations on observations, actions, and rewards.
@@ -400,7 +350,9 @@ class EnvWithTransform(gym.Wrapper):
         if self.reward_transform:
             self.reward_transform.reset(**kwargs)
 
-        return self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
+
+        return self.observation(obs), info
     
 def init_weights(m):
     if type(m) == nn.Linear:
