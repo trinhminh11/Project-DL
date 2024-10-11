@@ -238,6 +238,7 @@ class ModifiedCarRacing(gym.Env, EzPickle):
         ray_length: float = 200,
         ray_angles: list[int] = [0, 30, 60, 90, 120, 150, 180],
         render_ray = False,
+        die_if_grass = False
     ):
         EzPickle.__init__(
             self,
@@ -288,6 +289,7 @@ class ModifiedCarRacing(gym.Env, EzPickle):
         self.ray_length = ray_length
         self.ray_angles = ray_angles
         self.render_ray = render_ray
+        self.die_if_grass = die_if_grass
 
         self.rays_value = np.zeros(len(self.ray_angles), dtype=np.float32)
 
@@ -305,6 +307,8 @@ class ModifiedCarRacing(gym.Env, EzPickle):
             self.observation_space._shape[key] = item.shape
 
         self.render_mode = render_mode
+
+        self.grassed = False
 
     def _destroy(self):
         if not self.road:
@@ -645,6 +649,11 @@ class ModifiedCarRacing(gym.Env, EzPickle):
 
         if self.render_mode == "human" or self.render_mode == "human_state":
             self.render()
+        
+        if self.die_if_grass and self.grassed:
+            terminated = True
+            step_reward -= 100
+
         return self.state, step_reward, terminated, truncated, {}
 
     def render(self):
@@ -800,12 +809,14 @@ class ModifiedCarRacing(gym.Env, EzPickle):
         #     pygame.draw.line(self.surf, color, wall[0], wall[1], 3)
         
         if isInRoad(self.car_head, walls):
+            self.grassed = False
             for i in range(len(self.rays)):
                 self.rays[i].cast(walls)
                 if mode not in ["state_pixels_list", "state_pixels", "human_state"] and self.render_ray:
                     self.rays[i].draw(self.surf)
                 self.rays_value[i] = self.rays[i].length
         else:
+            self.grassed = True
             self.rays_value.fill(0)
 
 

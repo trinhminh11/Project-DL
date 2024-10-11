@@ -263,9 +263,9 @@ class EnvWithTransform(gym.Wrapper):
             return self.action_transform(action)
         return action
     
-    def reward(self, reward):
+    def reward(self, observation, reward):
         if self.reward_transform:
-            return self.reward_transform(reward)
+            return self.reward_transform(observation, reward)
         return reward 
 
     def step(self, action):
@@ -305,7 +305,12 @@ class EnvWithTransform(gym.Wrapper):
                 a certain timelimit was exceeded, or the physics simulation has entered an invalid state.
         """
         observation, reward, terminated, truncated, info = self.env.step(self.action(action))
-        return self.observation(observation), self.reward(reward), terminated, truncated, info
+
+        observation = self.observation(observation)
+
+        reward = self.reward(observation, reward)
+
+        return observation, reward, terminated, truncated, info
 
     def reset(self, **kwargs) -> tuple[Any, dict[str, Any]]:
         """Resets the environment to an initial internal state, returning an initial observation and info.
