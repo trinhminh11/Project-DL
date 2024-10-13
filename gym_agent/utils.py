@@ -308,9 +308,7 @@ class EnvWithTransform(gym.Wrapper):
 
         observation = self.observation(observation)
 
-        reward = self.reward(observation, reward)
-
-        return observation, reward, terminated, truncated, info
+        return observation, reward, self.reward(observation, reward), terminated, truncated, info
 
     def reset(self, **kwargs) -> tuple[Any, dict[str, Any]]:
         """Resets the environment to an initial internal state, returning an initial observation and info.

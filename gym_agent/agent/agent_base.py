@@ -17,6 +17,7 @@ from .replay_buffer import ReplayBuffer
 
 from .agent_callbacks import Callbacks
 
+from .. import utils
 
 class AgentBase(ABC):
     def __init__(
@@ -149,11 +150,11 @@ class AgentBase(ABC):
                 states, actions, rewards, next_states, terminals = self.memory.sample()
                 self.learn(states, actions, rewards, next_states, terminals)
 
-    def train_on_episode(self, env: gym.Env, max_t: int, callbacks: Type[Callbacks] = None) -> float:
+    def train_on_episode(self, env: utils.EnvWithTransform, max_t: int, callbacks: Type[Callbacks] = None) -> float:
         """
         Train the agent on a single episode.
         Args:
-            env (gym.Env): The environment to train the agent in.
+            env (utils.EnvWithTransform): The environment to train the agent in.
             max_t (int): The maximum number of time steps in the episode.
             progress_bar (Type[tqdm], optional): Progress bar for visualizing the training process. Defaults to None.
             callbacks (Type[Callbacks], optional): Callbacks for custom actions at different stages of training. Defaults to None.
@@ -174,11 +175,11 @@ class AgentBase(ABC):
         for time_step in range(max_t):
             callbacks.on_step_begin()
             action = self.act(obs)
-            next_obs, reward, terminal, truncated, info = env.step(action)
+            next_obs, reward, reward_tfm, terminal, truncated, info = env.step(action)
 
             done = terminal or truncated
 
-            self.step(obs, action, reward, next_obs, terminal)
+            self.step(obs, action, reward_tfm, next_obs, terminal)
             obs = next_obs
 
             score += reward
@@ -199,11 +200,11 @@ class AgentBase(ABC):
         return score
 
 
-    def fit(self, env: gym.Env, n_games: int, max_t: int, save_best=False, save_last=False, save_dir="./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None) -> list:
+    def fit(self, env: utils.EnvWithTransform, n_games: int, max_t: int, save_best=False, save_last=False, save_dir="./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None) -> list:
         """
         Train the agent on the given environment for a specified number of games.
         Args:
-            env (gym.Env): The environment to train the agent on.
+            env (utils.EnvWithTransform): The environment to train the agent on.
             n_games (int): Number of games to train the agent.
             max_t (int): Maximum number of timesteps per game.
             save_best (bool, optional): If True, save the model when it achieves the best score. Defaults to False.
@@ -246,7 +247,7 @@ class AgentBase(ABC):
         self.epoch = None
         return scores
 
-    def play(self, env: gym.Env):
+    def play(self, env: utils.EnvWithTransform, stop_if_truncated: bool = False) -> float:
         self.eval = True
         import pygame
         
@@ -260,7 +261,12 @@ class AgentBase(ABC):
             env.render()
             action = self.act(obs)
 
-            next_obs, reward, done, truncated, info = env.step(action)
+            next_obs, reward, reward_tfm, terminated, truncated, info = env.step(action)
+
+            done = terminated
+
+            if stop_if_truncated:
+                done = done or truncated
 
             obs = next_obs
 
@@ -275,3 +281,43 @@ class AgentBase(ABC):
         self.eval = False
 
         return score
+    
+
+    def play_jupyter(self, env: utils.EnvWithTransform, stop_if_truncated: bool = False) -> float:
+        self.eval = True
+        import pygame
+        from IPython.display import display
+        from PIL import Image
+
+        pygame.init()
+        score = 0
+        obs = env.reset()[0]
+        self.reset()
+
+        done = False
+        while not done:
+            env.render()
+            action = self.act(obs)
+
+            next_obs, reward, reward_tfm, terminated, truncated, info = env.step(action)
+
+            pixel = env.render()
+
+
+            display(Image.fromarray(pixel), clear=True)
+
+            done = terminated
+
+            if stop_if_truncated:
+                done = done or truncated
+
+            obs = next_obs
+
+            score += reward
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+
+        pygame.quit()
+
