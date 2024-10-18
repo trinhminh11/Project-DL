@@ -25,6 +25,9 @@ class BaseBuffer(ABC):
         if n_envs <= 0:
             raise ValueError("The number of environments must be greater than 0.")
         
+        utils.check_for_nested_spaces(observation_space)
+        utils.check_for_nested_spaces(action_space)
+        
         self.buffer_size = buffer_size
         self.obs_shape = utils.get_shape(observation_space)[1:]
         self.action_shape = utils.get_shape(action_space)[1:]
@@ -110,22 +113,22 @@ class ReplayBuffer(BaseBuffer):
 
     def add(
             self, 
-            state: np.ndarray | dict[str, np.ndarray], 
+            observation: np.ndarray | dict[str, np.ndarray], 
             action: np.ndarray | dict[str, np.ndarray], 
             reward: np.ndarray, 
-            next_state: np.ndarray | dict[str, np.ndarray], 
+            next_observation: np.ndarray | dict[str, np.ndarray], 
             terminal: np.ndarray
         ) -> None:
         """Add a new experience to memory."""
         idx = self.mem_cntr
 
         if isinstance(self.observations, dict):
-            for key in state.keys():
-                self.observations[key][idx] = state[key]
-                self.next_observations[key][idx] = next_state[key]
+            for key in observation.keys():
+                self.observations[key][idx] = observation[key]
+                self.next_observations[key][idx] = next_observation[key]
         else:
-            self.observations[idx] = state
-            self.next_observations[idx] = next_state
+            self.observations[idx] = observation
+            self.next_observations[idx] = next_observation
         
         if isinstance(self.actions, dict):
             for key in action.keys():
@@ -186,9 +189,6 @@ class ReplayBuffer(BaseBuffer):
         return observations, actions, rewards, next_observations, terminals
 
 class RolloutBuffer(BaseBuffer):
-
-
-
     observations: np.ndarray
     actions: np.ndarray
     rewards: np.ndarray
@@ -204,7 +204,7 @@ class RolloutBuffer(BaseBuffer):
             buffer_size: int, 
             observation_space: spaces.Space, 
             action_space: spaces.Space, 
-            batch_size: int, 
+            batch_size: int | None, 
             device = "auto", 
             n_envs: int = 1, 
             seed: int = None
@@ -226,7 +226,45 @@ class RolloutBuffer(BaseBuffer):
 
         self.terminals = np.zeros([buffer_size, n_envs], dtype=np.bool_)
 
-        self.advantages = np.zeros([buffer_size, n_envs], dtype=np.float32)
-        self.returns = np.zeros([buffer_size, n_envs], dtype=np.float32)
         self.log_probs = np.zeros([buffer_size, n_envs], dtype=np.float32)
         self.values = np.zeros([buffer_size, n_envs], dtype=np.float32)
+
+        self.advantages = np.zeros([buffer_size, n_envs], dtype=np.float32)
+        self.returns = np.zeros([buffer_size, n_envs], dtype=np.float32)
+
+
+    def add(self, observation: np.ndarray | dict[str, np.ndarray], reward: np.ndarray, action: np.ndarray | dict[str, np.ndarray], value: np.ndarray, log_prob: np.ndarray, terminal: np.ndarray) -> None:
+        
+        idx = self.mem_cntr
+
+        if isinstance(self.observations, dict):
+            for key in observation.keys():
+                self.observations[key][idx] = observation[key]
+        else:
+            self.observations[idx] = observation
+        
+        if isinstance(self.actions, dict):
+            for key in action.keys():
+                self.actions[key][idx] = action[key]
+        else:
+            self.actions[idx] = action
+        
+        self.values[idx] = value
+        self.log_probs[idx] = log_prob
+
+        self.rewards[idx] = reward
+        self.terminals[idx] = terminal
+
+        self.mem_cntr += 1
+
+        if self.mem_cntr == self.buffer_size:
+            self.full = True
+            self.mem_cntr = 0
+    
+    def sample(self):
+        if self.batch_size:
+            ...
+        else:
+            ...
+            
+        return super().sample()

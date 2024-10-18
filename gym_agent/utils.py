@@ -7,7 +7,6 @@ import gymnasium.spaces as spaces
 import matplotlib.pyplot as plt
 
 
-
 def get_device(device: str | torch.device = "auto") -> str:
     if not isinstance(device, str) and not isinstance(device, torch.device):
         raise ValueError(f"Invalid device: {device}")
@@ -41,10 +40,23 @@ def get_shape(
     else:
         raise NotImplementedError(f"{space} space is not supported")
 
-def init_weights(m):
-    if type(m) == nn.Linear:
-        torch.nn.init.xavier_normal_(m.weight)
-        m.bias.data.fill_(0)
+def check_for_nested_spaces(space: spaces.Space) -> None:
+    """
+    Make sure the observation space does not have nested spaces (Dicts/Tuples inside Dicts/Tuples).
+    If so, raise an Exception informing that there is no support for this.
+
+    :param space: an observation space
+    """
+    if isinstance(space, (spaces.Dict, spaces.Tuple)):
+        sub_spaces = space.spaces.values() if isinstance(space, spaces.Dict) else space.spaces
+        for sub_space in sub_spaces:
+            if isinstance(sub_space, (spaces.Dict, spaces.Tuple)):
+                raise NotImplementedError(
+                    "Nested observation spaces are not supported (Tuple/Dict space inside Tuple/Dict space)."
+                )
+
+
+
 
 def to_device(*args, device='cuda'):
     for arg in args:
