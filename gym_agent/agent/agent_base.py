@@ -2,7 +2,7 @@
 import random
 import os
 from abc import ABC, abstractmethod
-from typing import Type, Callable, Any
+from typing import Type, TypeVar, Callable, Any
 
 # Third-party imports
 import gymnasium as gym
@@ -12,70 +12,98 @@ from tqdm import tqdm
 import torch
 from torch import Tensor
 import torch.nn as nn
+import torch.optim as optim
 
-from .replay_buffer import ReplayBuffer
+from .buffers import ReplayBuffer, RolloutBuffer, BaseBuffer
 
 from .agent_callbacks import Callbacks
 
 from .. import utils
+from .. import core
+
+ObsType = TypeVar("ObsType")
+ActType = TypeVar("ActType")
+
 
 class AgentBase(ABC):
+    memory: BaseBuffer
     def __init__(
             self,
-            state_shape: _ShapeLike,
-            action_shape: _ShapeLike,
-            batch_size: int,
-            on_policy: bool,
-            update_every: int = 1,
-            buffer_size: int = int(1e5),
-            device: str = 'cpu',
-            seed = 0,
-            **kwargs
-        ) -> None:
+            policy: nn.Module,
+            env: core.EnvWithTransform | gym.Env | str,
+            optimizer: Type[optim.Optimizer] = optim.Adam,
+            lr: float = 1e-3,
+            optimizer_kwargs: dict = None,
+            device: str = 'auto',
+            seed = None,
+        ):
+        if not isinstance(policy, nn.Module):
+            raise ValueError("policy must be an instance of torch.nn.Module")
+
+        if not issubclass(optimizer, optim.Optimizer):
+            raise ValueError("optimizer must be a subclass of torch.optim.Optimizer")
+
+        if isinstance(env, gym.vector.VectorEnv):
+            if isinstance(env, core.EnvWithTransform):
+                self.env = env
+            else:
+                self.env = core.EnvWithTransform(env)
+        else:
+            if isinstance(env, str):
+                self.env = core.make_vec(env, 1)
+            elif isinstance(env, core.EnvWithTransform):
+                self.env = core.EnvWithTransform(gym.vector.AsyncVectorEnv([lambda : env.env]))
+            elif isinstance(env, gym.Env):
+                self.env = core.EnvWithTransform(gym.vector.AsyncVectorEnv([lambda : env.env]))
+            else:
+                raise ValueError("env must be an instance of EnvWithTransform, gym.Env, or str")
+
+        self.n_envs = self.env.unwrapped.num_envs
+
+
+        self.policy = policy
+
+        if optimizer_kwargs is None:
+            optimizer_kwargs = {}
+
+        self.optimizer = optimizer(self.policy.parameters(), lr = lr, **optimizer_kwargs)
         
-        self.device = device
-        self.on_policy = on_policy
-        self.update_every = update_every
-        self.memory = ReplayBuffer(state_shape, action_shape, batch_size, on_policy, buffer_size, device, seed)
-        self.time_step = 0
-        self.eval = False
-        random.seed(seed)
+        self.device = utils.get_device(device)
+        self.seed = seed
 
-        self._modules: dict[str, nn.Module] = {}
+        self.memory = None
 
-        self.callbacks = Callbacks(self)
-
-        self.epoch = None
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if isinstance(value, nn.Module):
-            self._modules[name] = value
-
-        super().__setattr__(name, value)
+        self.to(self.device)
     
     def apply(self, fn: Callable[[nn.Module], None]):
-        for module in self._modules.values():
-            module.apply(fn)
+        self.policy.apply(fn)
     
     def to(self, device):
         self.device = device
-        self.memory.to(device)
+        if self.memory:
+            self.memory.to(device)
+        self.policy.to(device)
+        
+        return self
 
-        for module in self._modules.values():
-            module.to(device)
-
-    def save(self, dir):
-        dir = os.path.join(dir, self.__class__.__name__)
+    def save(self, dir, *post_names):
+        name = self.__class__.__name__
 
         if not os.path.exists(dir):
             os.makedirs(dir)
+        
+        for post_name in post_names:
+            name += "_" + post_name
+        
+        torch.save(self.policy.state_dict(), os.path.join(dir, name + ".pth"))
 
-        for name, module in self._modules.items():
-            torch.save(module.state_dict(), os.path.join(dir, name + ".pth"))
     
-    def load(self, dir = None):
-        for name, module in self._modules.items():
-            module.load_state_dict(torch.load(os.path.join(dir, self.__class__.__name__, name + ".pth"), self.device, weights_only=True))
+    def load(self, dir, *post_names):
+        name = self.__class__.__name__
+        for post_name in post_names:
+            name += "_" + post_name
+
+        self.policy.load_state_dict(torch.load(os.path.join(dir, name + ".pth"), self.device, weights_only=True))
 
     def reset(self):
         r"""
@@ -84,184 +112,52 @@ class AgentBase(ABC):
         ...
     
     @abstractmethod
-    def act(self, state: np.ndarray) -> Any: 
-        """
+    def act(self, observation: np.ndarray | dict, deterministic: bool = True) -> ActType:
+        r"""
         Abstract method to be implemented by subclasses to define the action 
-        taken by the agent given a certain state.
+        taken by the agent given a certain observation.
 
         Args:
-            state (np.ndarray): The current state represented as a NumPy array.
+            observation (np.ndarray): The current observation represented as a NumPy array.
 
         Returns:
-            Any: The action to be taken by the agent. The type of the action 
-            depends on the specific implementation.
+            ActType: The action to be taken by the agent.
         """
         ...
-
-    @abstractmethod
-    def learn(self, states: Tensor, actions: Tensor, rewards: Tensor, next_states: Tensor, terminals: Tensor) -> Any: 
-        """
-        Abstract method to be implemented by subclasses for learning from a batch of experiences.
-
-        Note:
-            - If the agent is on-policy, this method should be called after each episode.
-            - If the agent is off-policy, this method should be called after each step.
-
-        Args:
-            states (Tensor): The batch of current states.
-            actions (Tensor): The batch of actions taken.
-            rewards (Tensor): The batch of rewards received.
-            next_states (Tensor): The batch of next states resulting from the actions.
-            terminals (Tensor): The batch of terminal flags indicating if the next state is terminal.
-
-        """
-        ...
+        raise NotImplementedError
     
-    def step(self, state: np.ndarray, action: np.ndarray, reward: np.ndarray, next_state: np.ndarray, terminal: np.ndarray):
-        """
-        Perform a single step in the agent's interaction with the environment.
+    def _act(self, observation: np.ndarray | dict, deterministic: bool = True) -> ActType:
+        actions = []
+        if isinstance(observation, dict):
+            _observations = [{}] * self.n_envs
 
-        This method adds the current experience to the agent's memory and, if the agent is off-policy,
-        periodically samples a batch from the memory to learn from it.
+            for i in range(self.n_envs):
+                for key, obs in observation.items():
+                    _observations[i][key] = obs[i]
+                actions.append(self.act(_observations[i], deterministic))
 
-        Args:
-            state (object): The current state of the environment.
-            action (object): The action taken by the agent.
-            reward (float): The reward received after taking the action.
-            next_state (object): The state of the environment after taking the action.
-            terminal (bool): Whether the episode has ended.
-
-        Returns:
-            None
-        """
-        # Add the current experience to the replay buffer
-        self.memory.add(state, action, reward, next_state, terminal)
-
-        # If the agent is on-policy, return immediately
-        if self.on_policy:
-            return
-
-        # Increment the time step and check if it's time to update
-        self.time_step = (self.time_step + 1) % self.update_every
-
-        # If it's time to update, sample a batch from memory and learn from it
-        if self.time_step == 0:
-            if len(self.memory) >= self.memory.batch_size:
-                states, actions, rewards, next_states, terminals = self.memory.sample()
-                self.learn(states, actions, rewards, next_states, terminals)
-
-    def train_on_episode(self, env: utils.EnvWithTransform, max_t: int, callbacks: Type[Callbacks] = None) -> float:
-        """
-        Train the agent on a single episode.
-        Args:
-            env (utils.EnvWithTransform): The environment to train the agent in.
-            max_t (int): The maximum number of time steps in the episode.
-            progress_bar (Type[tqdm], optional): Progress bar for visualizing the training process. Defaults to None.
-            callbacks (Type[Callbacks], optional): Callbacks for custom actions at different stages of training. Defaults to None.
-        Returns:
-            float: The total score (sum of rewards) obtained in the episode.
-        """
-        if callbacks is None:
-            callbacks = Callbacks(self)
+        else:
+            for i in range(self.n_envs):
+                actions.append(self.act(observation[i], deterministic))
         
-        callbacks.on_episode_begin()
+        return actions
 
-        self.eval = False
-
-        obs = env.reset()[0]
-        self.reset()
-        score = 0
-
-        for time_step in range(max_t):
-            callbacks.on_step_begin()
-            action = self.act(obs)
-            next_obs, reward, reward_tfm, terminal, truncated, info = env.step(action)
-
-            done = terminal or truncated
-
-            self.step(obs, action, reward_tfm, next_obs, terminal)
-            obs = next_obs
-
-            score += reward
-
-            callbacks.on_step_end()
-
-            if done:
-                break
-        
-        if self.on_policy:
-            states, actions, rewards, next_states, terminals = self.memory.sample()
-            self.memory.clear()
-            
-            self.learn(states, actions, rewards, next_states, terminals)
-
-        callbacks.on_episode_end()
-        
-        return score
-
-
-    def fit(self, env: utils.EnvWithTransform, n_games: int, max_t: int, save_best=False, save_last=False, save_dir="./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None) -> list:
-        """
-        Train the agent on the given environment for a specified number of games.
-        Args:
-            env (utils.EnvWithTransform): The environment to train the agent on.
-            n_games (int): Number of games to train the agent.
-            max_t (int): Maximum number of timesteps per game.
-            save_best (bool, optional): If True, save the model when it achieves the best score. Defaults to False.
-            save_last (bool, optional): If True, save the model after the last game. Defaults to False.
-            save_dir (str, optional): Directory to save the model. Defaults to "./".
-            progress_bar (Type[tqdm], optional): Progress bar for visualizing training progress. Defaults to None.
-            callbacks (Type[Callbacks], optional): Callbacks to execute during training. Defaults to None.
-        Returns:
-            list: A list of scores for each game played.
-        """
-        if callbacks is None:
-            callbacks = Callbacks(self)
-        
-        callbacks.on_train_begin()
-
-        scores = []
-
-        # Use tqdm for progress bar if provided
-        loop = progress_bar(range(n_games)) if progress_bar else range(n_games)
-
-        for self.epoch in loop:
-            score = self.train_on_episode(env, max_t, callbacks)
-            
-            scores.append(score)
-
-            avg_score = np.mean(scores[-100:])
-
-            if save_best:
-                self.save(save_dir)
-
-            else:
-                if save_last:
-                    self.save(save_dir)
-
-            if progress_bar:
-                loop.set_postfix(score = score, avg_score = avg_score)
-            
-        callbacks.on_train_end()
-        
-        self.epoch = None
-        return scores
-
-    def play(self, env: utils.EnvWithTransform, stop_if_truncated: bool = False) -> float:
+    
+    def play(self, env: core.EnvWithTransform, stop_if_truncated: bool = False, seed = None) -> float:
         self.eval = True
         import pygame
         
         pygame.init()
         score = 0
-        obs = env.reset()[0]
+        obs = env.reset(seed=seed)[0]
         self.reset()
 
         done = False
         while not done:
             env.render()
-            action = self.act(obs)
+            action = self.act(obs, True)
 
-            next_obs, reward, reward_tfm, terminated, truncated, info = env.step(action)
+            next_obs, reward, terminated, truncated, info = env.step(action)
 
             done = terminated
 
@@ -270,7 +166,7 @@ class AgentBase(ABC):
 
             obs = next_obs
 
-            score += reward
+            score += env.env_reward
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -282,8 +178,7 @@ class AgentBase(ABC):
 
         return score
     
-
-    def play_jupyter(self, env: utils.EnvWithTransform, stop_if_truncated: bool = False) -> float:
+    def play_jupyter(self, env: core.EnvWithTransform, stop_if_truncated: bool = False, seed = None) -> float:
         self.eval = True
         import pygame
         from IPython.display import display
@@ -291,18 +186,17 @@ class AgentBase(ABC):
 
         pygame.init()
         score = 0
-        obs = env.reset()[0]
+        obs = env.reset(seed=seed)[0]
         self.reset()
 
         done = False
         while not done:
             env.render()
-            action = self.act(obs)
+            action = self.act(obs, True)
 
-            next_obs, reward, reward_tfm, terminated, truncated, info = env.step(action)
+            next_obs, reward, terminated, truncated, info = env.step(action)
 
             pixel = env.render()
-
 
             display(Image.fromarray(pixel), clear=True)
 
@@ -313,7 +207,7 @@ class AgentBase(ABC):
 
             obs = next_obs
 
-            score += reward
+            score += env.env_reward
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -321,3 +215,192 @@ class AgentBase(ABC):
 
         pygame.quit()
 
+class OffPolicyAgent(AgentBase):
+    memory: ReplayBuffer
+    def __init__(
+            self, 
+            policy: nn.Module, 
+            env: core.EnvWithTransform | gym.Env | str, 
+            optimizer: Type[optim.Optimizer] = optim.Adam,
+            lr: float = 1e-3,
+            optimizer_kwargs: dict = None,
+            buffer_size = int(1e5),
+            batch_size: int = 64,
+            update_every: int = 1,
+            device = 'auto', 
+            seed = None
+        ):
+        super().__init__(policy, env, optimizer, lr, optimizer_kwargs, device, seed)
+
+        self.memory = ReplayBuffer(buffer_size = buffer_size, observation_space = self.env.observation_space, action_space = self.env.action_space, batch_size = batch_size, device = self.device, n_envs = self.n_envs, seed = self.seed)
+
+        self.update_every = update_every
+
+        self.time_step = 0
+
+    
+    @abstractmethod
+    def learn(self, observations: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, next_observations: torch.Tensor, terminals: torch.Tensor) -> None:
+        """
+        Abstract method to be implemented by subclasses for learning from a batch of experiences.
+
+        Args:
+            observations (torch.Tensor): The batch of current observations.
+            actions (torch.Tensor): The batch of actions taken.
+            rewards (torch.Tensor): The batch of rewards received.
+            next_observations (torch.Tensor): The batch of next observations resulting from the actions.
+            terminals (torch.Tensor): The batch of terminal flags indicating if the next observation is terminal.
+        """
+        ...
+    
+    def step(self, observation: np.ndarray | dict, action: np.ndarray | dict, reward: np.ndarray, next_observation: np.ndarray | dict, terminal: np.ndarray):
+        """
+        Perform a single step in the agent's environment.
+        This method adds the current experience to the replay buffer, increments the time step,
+        and updates the agent by sampling a batch from memory if it's time to update.
+        Args:
+            observation (np.ndarray): The current state observation.
+            action (np.ndarray): The action taken by the agent.
+            reward (np.ndarray): The reward received after taking the action.
+            next_observation (np.ndarray): The next state observation after taking the action.
+            terminal (np.ndarray): A flag indicating whether the episode has ended.
+        Returns:
+            None
+        """
+        
+        # Add the current experience to the replay buffer
+        self.memory.add(observation, action, reward, next_observation, terminal)
+
+        # Increment the time step and check if it's time to update
+        self.time_step = (self.time_step + 1) % self.update_every
+
+        # If it's time to update, sample a batch from memory and learn from it
+        if self.time_step == 0:
+            if len(self.memory) >= self.memory.batch_size:
+                observations, actions, rewards, next_observations, terminals = self.memory.sample()
+                for i in range(self.n_envs):
+                    self.learn(observations[i], actions[i], rewards[i], next_observations[i], terminals[i])
+
+
+    def fit(self, total_timesteps: int = None, n_games: int = None, deterministic=False, save_best=False, save_every=False, save_dir="./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None) -> list:
+        if callbacks is None:
+            callbacks = Callbacks(self)
+
+        if total_timesteps is None and n_games is None:
+            raise ValueError("Either total_timesteps or n_games must be provided")
+
+        if total_timesteps:
+            return self.fit_by_timesteps(total_timesteps, deterministic, save_best, save_every, save_dir, progress_bar, callbacks)
+        else:
+            return self.fit_by_games(n_games, deterministic, save_best, save_every, save_dir, progress_bar, callbacks)
+
+    def fit_by_timesteps(self, total_timesteps: int, deterministic = False, save_best = False, save_every = False, save_dir = "./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None):
+        if callbacks is None:
+            callbacks = Callbacks(self)
+
+        callbacks.on_train_begin()
+
+        scores = []
+        mean_scores = []
+
+        # Use tqdm for progress bar if provided
+        loop: tqdm = progress_bar(range(total_timesteps)) if progress_bar else range(total_timesteps)
+
+        episode = 0
+        
+        start = True
+
+        best_score = float('-inf')
+
+        for t in loop:
+            if start:
+                score = 0
+                callbacks.on_episode_begin()
+                obs = self.env.reset()[0]
+                self.reset()
+                start = False
+            
+            action = self._act(obs, deterministic)
+            next_obs, reward, terminal, truncated, info = self.env.step(action)
+            done = (terminal or truncated).all()
+            self.step(obs, action, reward, next_obs, terminal)
+            score += self.env.env_reward.mean()
+            obs = next_obs
+
+            if done:
+                callbacks.on_episode_end()
+                start = True
+                scores.append(score)
+                episode += 1
+
+                avg_score = np.mean(scores[-100:])
+                mean_scores.append(avg_score)
+
+                if save_best:
+                    if avg_score >= best_score:
+                        best_score = avg_score
+                        self.save(save_dir, "best")
+                
+                if save_every:
+                    if episode % save_every == 0:
+                        self.save(save_dir, str(episode))
+            
+                if progress_bar:
+                    loop.set_postfix({"game": episode, "avg_score": np.mean(scores[-100:]), "score": scores[-1]})
+
+        callbacks.on_train_end()
+        return {'scores': scores, 'mean_scores': mean_scores, 'n_games': episode, 'total_timesteps': total_timesteps}
+
+    def fit_by_games(self, n_games: int, deterministic = False, save_best = False, save_every = False, save_dir = "./", progress_bar: Type[tqdm] = None, callbacks: Type[Callbacks] = None):
+        if callbacks is None:
+            callbacks = Callbacks(self)
+        
+        callbacks.on_train_begin()
+
+        scores = []
+        mean_scores = []
+
+        # Use tqdm for progress bar if provided
+        loop = progress_bar(range(n_games)) if progress_bar else range(n_games)
+
+        total_timesteps = 0
+
+        best_score = float('-inf')
+
+        for episode in loop:
+            done = False
+            score = 0
+            callbacks.on_episode_begin()
+            obs = self.env.reset()[0]
+            self.reset()
+            while not done:
+                total_timesteps += 1
+                action = self._act(obs, deterministic)
+                next_obs, reward, terminal, truncated, info = self.env.step(action)
+
+                done = (terminal or truncated).all()
+                self.step(obs, action, reward, next_obs, terminal)
+                score += self.env.env_reward.mean()
+                obs = next_obs
+
+            callbacks.on_episode_end()
+
+            scores.append(score)
+            avg_score = np.mean(scores[-100:])
+            mean_scores.append(avg_score)
+
+            if save_best:
+                if avg_score >= best_score:
+                    best_score = avg_score
+                    self.save(save_dir, "best")
+            
+            if save_every:
+                if episode % save_every == 0:
+                    self.save(save_dir, str(episode))
+
+            if progress_bar:
+                loop.set_postfix({"avg_score": avg_score, "score": scores[-1]})
+
+        callbacks.on_train_end()
+
+        return {'scores': scores, 'mean_scores': mean_scores, 'n_games': n_games, 'total_timesteps': total_timesteps}
