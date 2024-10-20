@@ -2,6 +2,8 @@
 import torch
 import torch.nn as nn
 
+from numpy.typing import NDArray
+
 import gymnasium.spaces as spaces
 
 import matplotlib.pyplot as plt
@@ -27,18 +29,32 @@ def get_shape(
     if isinstance(space, spaces.Box):
         return space.shape
     elif isinstance(space, spaces.Discrete):
-        # Observation is an int
-        return (1,)
+        return ()
     elif isinstance(space, spaces.MultiDiscrete):
         # Number of discrete features
-        return (space.shape, 1)
+        return (space.shape, )
     elif isinstance(space, spaces.MultiBinary):
         # Number of binary features
         return space.shape
     elif isinstance(space, spaces.Dict):
-        return {key: get_obs_shape(subspace) for (key, subspace) in space.spaces.items()}  # type: ignore[misc]
+        return {key: get_shape(subspace) for (key, subspace) in space.spaces.items()}
     else:
         raise NotImplementedError(f"{space} space is not supported")
+
+def to_torch(
+    x: NDArray | dict[str, NDArray],
+    device: str | torch.device,
+) -> torch.Tensor | dict[str, torch.Tensor]:
+    """
+    Convert a tensor or a dictionary of tensors to a torch.Tensor.
+
+    :param x: the input tensor or dictionary of tensors
+    :param device: the device to which the tensor(s) will be moved
+    :return: the tensor or dictionary of tensors as torch.Tensor(s)
+    """
+    if isinstance(x, dict):
+        return {key: torch.from_numpy(value).to(device) for key, value in x.items()}
+    return torch.from_numpy(x).to(device)
 
 def check_for_nested_spaces(space: spaces.Space) -> None:
     """
@@ -54,9 +70,6 @@ def check_for_nested_spaces(space: spaces.Space) -> None:
                 raise NotImplementedError(
                     "Nested observation spaces are not supported (Tuple/Dict space inside Tuple/Dict space)."
                 )
-
-
-
 
 def to_device(*args, device='cuda'):
     for arg in args:
