@@ -15,6 +15,9 @@ def make(
         autoreset: bool | None = None,
         apply_api_compatibility: bool | None = None,
         disable_env_checker: bool | None = None,
+        observation_transform: Transform = None,
+        action_transform: Transform = None,
+        reward_transform: Transform = None,
         **kwargs: Any,
     ):
     """
@@ -41,7 +44,13 @@ def make(
     Raises:
         Error: If the ``id`` doesn't exist in the :attr:`registry`
     """
-    return EnvWithTransform(gym.make(id, max_episode_steps, autoreset, apply_api_compatibility, disable_env_checker, **kwargs))
+    
+    return EnvWithTransform(
+        gym.make(id, max_episode_steps, autoreset, apply_api_compatibility, disable_env_checker, **kwargs), 
+        observation_transform, 
+        action_transform, 
+        reward_transform
+    )
 
 def make_vec(
         id: str | EnvSpec, 
@@ -49,7 +58,11 @@ def make_vec(
         max_episode_steps: int | None = None,
         autoreset: bool | None = None,
         apply_api_compatibility: bool | None = None,
-        disable_env_checker: bool | None = None,
+        disable_env_checker: bool = True,
+        observation_transform: Transform = None,
+        action_transform: Transform = None,
+        reward_transform: Transform = None,
+        vectorization_mode: str = "async",
         vector_kwargs: dict[str, Any] | None = None,
         **kwargs: Any):
     
@@ -58,8 +71,23 @@ def make_vec(
 
     if vector_kwargs is None:
         vector_kwargs = {}
+    
+    def env_fn():
+        return make(
+            id, 
+            max_episode_steps, 
+            autoreset, 
+            apply_api_compatibility, 
+            disable_env_checker, 
+            observation_transform, 
+            action_transform, 
+            reward_transform, 
+            **kwargs
+        )
 
-    envs = [lambda: gym.make(id, max_episode_steps, autoreset, apply_api_compatibility, disable_env_checker, **kwargs) for _ in range(num_envs)]
-    
-    return EnvWithTransform(gym.vector.AsyncVectorEnv(envs, **vector_kwargs))
-    
+    envs = [env_fn for _ in range(num_envs)]
+
+    if vectorization_mode == 'async':
+        return gym.vector.AsyncVectorEnv(envs, **vector_kwargs)
+    else:
+        return gym.vector.SyncVectorEnv(envs, **vector_kwargs)

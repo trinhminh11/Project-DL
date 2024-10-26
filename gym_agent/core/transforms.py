@@ -3,7 +3,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-from typing import Any
+from typing import Any, Type, Callable, TypeVar
 
 class Transform:
     """
@@ -17,6 +17,7 @@ class Transform:
     __repr__()
         Returns a string representation of the transformation class.
     """
+
     def reset(self, **kwargs): ...
 
     def __call__(self, *args, **kwargs):
@@ -127,11 +128,11 @@ class EnvWithTransform(gym.Wrapper):
         
     Methods
     =====
-        set_observation_transform(tfm: Transform):
+        set_observation_transform(tfm: Type[Transform]):
             Sets the transformation to apply to observations.
-        set_action_transform(tfm: Transform):
+        set_action_transform(tfm: Type[Transform]):
             Sets the transformation to apply to actions.
-        set_reward_transform(tfm: Transform):
+        set_reward_transform(tfm: Type[Transform]):
             Sets the transformation to apply to rewards.
         observation(observation):
             Applies the observation transformation if set.
@@ -144,7 +145,13 @@ class EnvWithTransform(gym.Wrapper):
         reset(**kwargs) -> tuple[Any, dict[str, Any]]:
             Resets the environment and the transformations if set.
     """
-    def __init__(self, env: gym.Env):
+    def __init__(
+            self, 
+            env: gym.Env, 
+            observation_transform: Transform=None, 
+            action_transform: Transform=None, 
+            reward_transform: Transform=None
+        ):
         """
         Initializes the utility class with the given environment.
 
@@ -157,14 +164,21 @@ class EnvWithTransform(gym.Wrapper):
             reward_transform: A transformation function for rewards, initialized to None.
         """
         super().__init__(env)
-        self.observation_transform = None
-        self.action_transform = None
-        self.reward_transform = None
 
-        self.env_reward = None
-    
-    def add_wrapper(self, wrapper):
-        self.env = wrapper(self.env)
+        self._observation_transform = observation_transform
+        if hasattr(self._observation_transform, 'observation_space'):
+            self.observation_space = self._observation_transform.observation_space
+
+        self._action_transform = action_transform
+        if hasattr(self._action_transform, 'action_space'):
+            self.action_space = self._action_transform.action_space
+        
+        self._reward_transform = reward_transform
+        if hasattr(self._reward_transform, 'reward_range'):
+            self.reward_range = self._reward_transform.reward_range
+
+    def add_wrapper(self, wrapper: Type[gym.Wrapper], *args, **kwargs):
+        self.env = wrapper(self.env, *args, **kwargs)
 
     def set_observation_transform(self, tfm: Transform):
         """
@@ -178,11 +192,10 @@ class EnvWithTransform(gym.Wrapper):
         """
         if not isinstance(tfm, Transform):
             raise TypeError('observation_transform must be Transform')
-        
-        if hasattr(tfm, 'observation_space'):
-            self.observation_space = tfm.observation_space
 
-        self.observation_transform = tfm
+        self._observation_transform = tfm
+        if hasattr(self._observation_transform, 'observation_space'):
+            self.observation_space = self._observation_transform.observation_space
 
     def set_action_transform(self, tfm: Transform):
         """
@@ -199,11 +212,10 @@ class EnvWithTransform(gym.Wrapper):
         """
         if not isinstance(tfm, Transform):
             raise TypeError('action_transform must be Transform')
-
-        if hasattr(tfm, 'action_space'):
-            self.action_space = tfm.action_space        
-
-        self.action_transform = tfm
+        
+        self._action_transform = tfm
+        if hasattr(self._action_transform, 'action_space'):
+            self.action_space = self._action_transform.action_space        
     
     def set_reward_transform(self, tfm: Transform):
         """
@@ -217,25 +229,24 @@ class EnvWithTransform(gym.Wrapper):
         """
         if not isinstance(tfm, Transform):
             raise TypeError('reward_transform must be Transform')
-        
-        if hasattr(tfm, 'reward_range'):
-            self.reward_range = tfm.reward_range
-
-        self.reward_transform = tfm
+    
+        self._reward_transform = tfm
+        if hasattr(self._reward_transform, 'reward_range'):
+            self.reward_range = self._reward_transform.reward_range
 
     def observation(self, observation):
-        if self.observation_transform:
-            return self.observation_transform(observation)
+        if self._observation_transform:
+            return self._observation_transform(observation)
         return observation
 
     def action(self, action):
-        if self.action_transform:
-            return self.action_transform(action)
+        if self._action_transform:
+            return self._action_transform(action)
         return action
     
-    def reward(self, observation, reward):
-        if self.reward_transform:
-            return self.reward_transform(observation, reward)
+    def reward(self, reward):
+        if self._reward_transform:
+            return self._reward_transform(reward)
         return reward 
 
     def step(self, action):
@@ -275,11 +286,9 @@ class EnvWithTransform(gym.Wrapper):
                 a certain timelimit was exceeded, or the physics simulation has entered an invalid state.
         """
         observation, reward, terminated, truncated, info = self.env.step(self.action(action))
-        self.env_reward = reward
 
         observation = self.observation(observation)
-        reward = self.reward(observation, reward)
-
+        reward = self.reward(reward)
 
         return observation, reward, terminated, truncated, info
 
@@ -317,17 +326,18 @@ class EnvWithTransform(gym.Wrapper):
             info (dictionary):  This dictionary contains auxiliary information complementing ``observation``. It should be analogous to
                 the ``info`` returned by :meth:`step`.
         """
-        if self.observation_transform:
-            self.observation_transform.reset(**kwargs)
+        if self._observation_transform:
+            self._observation_transform.reset(**kwargs)
         
-        if self.action_transform:
-            self.action_transform.reset(**kwargs)
+        if self._action_transform:
+            self._action_transform.reset(**kwargs)
         
-        if self.reward_transform:
-            self.reward_transform.reset(**kwargs)
+        if self._reward_transform:
+            self._reward_transform.reset(**kwargs)
 
         obs, info = self.env.reset(**kwargs)
 
         self.env_reward = None
 
         return self.observation(obs), info
+

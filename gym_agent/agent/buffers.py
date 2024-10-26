@@ -47,8 +47,8 @@ class BaseBuffer(ABC):
             raise ValueError("The number of environments must be greater than 0.")
         
         self.buffer_size = buffer_size
-        self.obs_shape = utils.get_shape(observation_space)[1:]
-        self.action_shape = utils.get_shape(action_space)[1:]
+        self.obs_shape = utils.get_shape(observation_space)
+        self.action_shape = utils.get_shape(action_space)
         self.n_envs = n_envs
         self.device = utils.get_device(device)
 
@@ -229,7 +229,6 @@ class RolloutBuffer(BaseBuffer):
         
         self.rewards = np.zeros([buffer_size, n_envs], dtype=np.float32)
 
-
         self.log_probs = np.zeros([buffer_size, n_envs], dtype=np.float32)
         self.values = np.zeros([buffer_size, n_envs], dtype=np.float32)
 
@@ -369,21 +368,22 @@ class RolloutBuffer(BaseBuffer):
         self.processed = True
 
 
-    def get(self, batch_size: int):
+    def get(self, batch_size: int = None):
         if not self.processed:
             self.process_mem()
         
         mem_size = sum(self.end_mem_pos)
 
         if batch_size is None or batch_size is False:
+            yield self._get_sample(np.arange(mem_size))
+        
+        else:
             batch_size = mem_size
 
-        indices = np.random.permutation(mem_size)
+            indices = np.random.permutation(mem_size)
 
-        assert mem_size != 0, f"??? {mem_size}, {self.end_mem_pos}, {self.mem_cntr}"
-
-        for start_idx in range(0, mem_size, batch_size):
-            yield self._get_sample(indices[start_idx : start_idx + batch_size])
+            for start_idx in range(0, mem_size, batch_size):
+                yield self._get_sample(indices[start_idx : start_idx + batch_size])
     
     def sample(self, batch_size: int) -> RolloutBufferSamples:
         if not self.processed:

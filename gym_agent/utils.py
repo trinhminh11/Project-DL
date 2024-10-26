@@ -29,10 +29,10 @@ def get_shape(
     if isinstance(space, spaces.Box):
         return space.shape
     elif isinstance(space, spaces.Discrete):
-        return ()
+        return (1, )
     elif isinstance(space, spaces.MultiDiscrete):
         # Number of discrete features
-        return (space.shape, )
+        return (len(space.shape), 1)
     elif isinstance(space, spaces.MultiBinary):
         # Number of binary features
         return space.shape
@@ -40,6 +40,7 @@ def get_shape(
         return {key: get_shape(subspace) for (key, subspace) in space.spaces.items()}
     else:
         raise NotImplementedError(f"{space} space is not supported")
+
 
 def to_torch(
     x: NDArray | dict[str, NDArray],
