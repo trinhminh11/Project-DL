@@ -143,8 +143,10 @@ class AgentBase(ABC):
             'policy': self.policy.state_dict(),
         }
 
-        for name in self._optimizers:
-            ret[name] = getattr(self, name).state_dict()
+        if len(self._optimizers) > 0:
+            ret['optimizers'] = {}
+            for name in self._optimizers:
+                ret['optimizers'][name] = getattr(self, name).state_dict()
 
         for name in self.save_kwargs:
             ret[name] = getattr(self, name)
@@ -178,8 +180,8 @@ class AgentBase(ABC):
         self.scores = checkpoint['scores']
         self.mean_scores = checkpoint['mean_scores']
 
-        for optimizer_name, optimizer_state in checkpoint['optimizers'].items():
-            getattr(self, optimizer_name).load_state_dict(optimizer_state)
+        for name in self._optimizers:
+            getattr(self, name).load_state_dict(checkpoint['optimizers'][name])
         
         for name in self.save_kwargs:
             setattr(self, name, checkpoint[name])
