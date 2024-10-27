@@ -514,7 +514,7 @@ class OnPolicyAgent(AgentBase):
             obs = next_obs
             timesteps += 1
         
-        self.memory.calc_advantages_and_returns(obs, terminal)
+        self.memory.calc_advantages_and_returns(value, terminal)
 
         callbacks.on_learn_begin()
         self.learn(self.memory)

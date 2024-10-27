@@ -310,21 +310,21 @@ class RolloutBuffer(BaseBuffer):
 
 
                 return advantages, returns
-
                 
-            advantages = np.zeros(T, dtype=np.float32)
             T = self.end_mem_pos[env]
+            advantages = np.zeros(T, dtype=np.float32)
             last_gae_lambda = 0
+
             for t in reversed(range(T)):
                 if t == T - 1:
-                    next_terminal = 1.0 - last_terminals[env]
+                    next_non_terminal = 1.0 - last_terminals[env]
                     next_values = last_values[env]
                 else:
-                    next_terminal = 1.0
+                    next_non_terminal = 1.0
                     next_values = self.values[t + 1][env]
 
-                delta = self.rewards[t][env] + (~next_terminal) * self.gamma * next_values - self.values[t][env]
-                last_gae_lambda = delta + self.gamma * self.gae_lambda *  last_gae_lambda
+                delta = self.rewards[t][env] + next_non_terminal * self.gamma * next_values - self.values[t][env]
+                last_gae_lambda = delta + next_non_terminal*self.gamma * self.gae_lambda *  last_gae_lambda
 
                 advantages[t] = last_gae_lambda 
             
