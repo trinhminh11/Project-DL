@@ -172,16 +172,16 @@ class ReplayBuffer(BaseBuffer):
         env_ind = np.random.randint(0, self.n_envs, size = len(batch))
 
         if isinstance(self.obs_shape, dict):
-            observations = {key: obs[batch, env_ind, :] for key, obs in self.observations.items()}
-            next_observations = {key: obs[(batch+1)%self.buffer_size, env_ind, :] for key, obs in self.observations.items()}
+            observations = {key: obs[batch, env_ind] for key, obs in self.observations.items()}
+            next_observations = {key: obs[(batch+1)%self.buffer_size, env_ind] for key, obs in self.observations.items()}
         else:
-            observations = self.observations[batch, env_ind, :]
-            next_observations = self.observations[(batch+1)%self.buffer_size, env_ind, :]
+            observations = self.observations[batch, env_ind]
+            next_observations = self.observations[(batch+1)%self.buffer_size, env_ind]
         
         if isinstance(self.action_shape, dict):
-            actions = {key: act[batch, env_ind, :] for key, act in self.actions.items()}
+            actions = {key: act[batch, env_ind] for key, act in self.actions.items()}
         else:
-            actions = self.actions[batch, env_ind, :]
+            actions = self.actions[batch, env_ind]
         
         rewards = self.rewards[batch, env_ind]
         terminals = self.terminals[batch, env_ind]

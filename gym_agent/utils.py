@@ -29,10 +29,10 @@ def get_shape(
     if isinstance(space, spaces.Box):
         return space.shape
     elif isinstance(space, spaces.Discrete):
-        return (1, )
+        return ( )
     elif isinstance(space, spaces.MultiDiscrete):
         # Number of discrete features
-        return (len(space.shape), 1)
+        return (len(space.shape), )
     elif isinstance(space, spaces.MultiBinary):
         # Number of binary features
         return space.shape
