@@ -5,6 +5,8 @@ import gym_agent as ga
 import gymnasium as gym
 import numpy as np
 
+from PIL import Image
+
 class CarRacingRays(ga.Transform):
     def __init__(self):
         super().__init__()
@@ -82,6 +84,18 @@ class SkipFrame(gym.Wrapper):
         return state, total_reward, terminated, truncated, info
 
 
+class ImageAsObs(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(96, 96, 3), dtype=np.float32)
+
+    def observation(self, observation):
+        image = self.env.unwrapped.render()
+        image = Image.fromarray(image)
+        image = image.resize((96, 96))
+        return np.array(image)
+
+
 def set_random_seed(seed: int) -> None:
 	"""
 	Sets the seeds at a certain value.
@@ -94,7 +108,6 @@ def set_random_seed(seed: int) -> None:
 	torch.backends.cudnn.benchmark = False
 	torch.backends.cudnn.deterministic = True
      
-	
 
 def init_weights(init_type='xavier'):
     def xavier(m: nn.Module):

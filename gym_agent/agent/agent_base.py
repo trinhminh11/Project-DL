@@ -167,7 +167,7 @@ class AgentBase(ABC):
     def load(self, dir, *post_names):
         name = self.__class__.__name__
         for post_name in post_names:
-            name += "_" + post_name
+            name += "_" + str(post_name)
 
         checkpoint = torch.load(os.path.join(dir, name + ".pth"), self.device, weights_only=False)
 
@@ -432,7 +432,7 @@ class OffPolicyAgent(AgentBase):
             action = self.predict(obs, deterministic)
             next_obs, reward, terminal, truncated, info = self.envs.step(action)
 
-            done = (terminal or truncated).all()
+            done = (terminal | truncated).all()
             self.step(obs, action, reward, next_obs, terminal)
             score += reward.mean()
             obs = next_obs
