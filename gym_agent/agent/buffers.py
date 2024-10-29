@@ -251,20 +251,20 @@ class RolloutBuffer(BaseBuffer):
 
         if isinstance(self.obs_shape, dict):
             for key in observation.keys():
-                self.observations[key][idx, ~self.dies] = observation[key]
+                self.observations[key][idx, ~self.dies] = observation[key][~self.dies]
         else:
-            self.observations[idx, ~self.dies] = observation
+            self.observations[idx, ~self.dies] = observation[~self.dies]
         
         if isinstance(self.action_shape, dict):
             for key in action.keys():
-                self.actions[key][idx, ~self.dies] = action[key]
+                self.actions[key][idx, ~self.dies] = action[key][~self.dies]
         else:
-            self.actions[idx, ~self.dies] = action
+            self.actions[idx, ~self.dies] = action[~self.dies]
 
-        self.rewards[idx, ~self.dies] = reward
+        self.rewards[idx, ~self.dies] = reward[~self.dies]
         
-        self.values[idx, ~self.dies] = value
-        self.log_probs[idx, ~self.dies] = log_prob
+        self.values[idx, ~self.dies] = value[~self.dies]
+        self.log_probs[idx, ~self.dies] = log_prob[~self.dies]
 
         self.mem_cntr += 1
         self.end_mem_pos += (~self.dies)
@@ -282,8 +282,16 @@ class RolloutBuffer(BaseBuffer):
         self.end_mem_pos = np.zeros((self.n_envs, ), dtype=np.uint32)
         self.processed = False
 
-        self.observations = np.zeros([self.buffer_size, self.n_envs, *self.obs_shape], dtype=np.float32)
-        self.actions = np.zeros([self.buffer_size, self.n_envs, *self.action_shape], dtype=np.float32)
+        if isinstance(self.obs_shape, dict):
+            self.observations = {key: np.zeros([self.buffer_size, self.n_envs, *shape], dtype=np.float32) for key, shape in self.obs_shape.items()}
+        else:
+            self.observations = np.zeros([self.buffer_size, self.n_envs, *self.obs_shape], dtype=np.float32)
+        
+        if isinstance(self.action_shape, dict):
+            self.actions = {key: np.zeros([self.buffer_size, self.n_envs, *shape], dtype=np.float32) for key, shape in self.action_shape.items()}
+        else:
+            self.actions = np.zeros([self.buffer_size, self.n_envs, *self.action_shape], dtype=np.float32)
+
         self.rewards = np.zeros([self.buffer_size, self.n_envs], dtype=np.float32)
         self.values = np.zeros([self.buffer_size, self.n_envs], dtype=np.float32)
         self.log_probs = np.zeros([self.buffer_size, self.n_envs], dtype=np.float32)
@@ -348,11 +356,21 @@ class RolloutBuffer(BaseBuffer):
             to convert shape from [n_steps, n_envs, ...] (when ... is the shape of the features)
             to [n_envs * n_steps, ...] (which maintain the order)
             """
-            ret_arr = np.zeros((sum(self.end_mem_pos), *arr.shape[2:]), dtype=arr.dtype)
+            if isinstance(arr, dict):
+                ret_arr = {}
+                for key in arr:
+                    ret_arr[key] = np.zeros((sum(self.end_mem_pos), *arr[key].shape[2:]), dtype=arr[key].dtype)
 
-            ret_arr[:self.end_mem_pos[0]] = arr[:self.end_mem_pos[0], 0]
-            for i in range(1, self.n_envs):
-                ret_arr[self.end_mem_pos[i-1]:self.end_mem_pos[i]] = arr[:self.end_mem_pos[i], i]
+                    ret_arr[key][:self.end_mem_pos[0]] = arr[key][:self.end_mem_pos[0], 0]
+                    for i in range(1, self.n_envs):
+                        ret_arr[self.end_mem_pos[i-1]:self.end_mem_pos[i]] = arr[key][:self.end_mem_pos[i], i]
+
+            else:
+                ret_arr = np.zeros((sum(self.end_mem_pos), *arr.shape[2:]), dtype=arr.dtype)
+
+                ret_arr[:self.end_mem_pos[0]] = arr[:self.end_mem_pos[0], 0]
+                for i in range(1, self.n_envs):
+                    ret_arr[self.end_mem_pos[i-1]:self.end_mem_pos[i]] = arr[:self.end_mem_pos[i], i]
 
             return ret_arr
 
@@ -395,12 +413,12 @@ class RolloutBuffer(BaseBuffer):
             
     def _get_sample(self, batch: NDArray[np.uint32]) -> RolloutBufferSamples:
         if isinstance(self.obs_shape, dict):
-            observations = {key: self.observations[batch] for key in self.obs_shape.keys()}
+            observations = {key: self.observations[key][batch] for key in self.obs_shape.keys()}
         else:
             observations = self.observations[batch]
         
         if isinstance(self.action_shape, dict):
-            actions = {key: self.actions[batch] for key in self.action_shape.keys()}
+            actions = {key: self.actions[key][batch] for key in self.action_shape.keys()}
         else:
             actions = self.actions[batch]
         
