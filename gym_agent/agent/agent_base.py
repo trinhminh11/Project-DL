@@ -285,7 +285,7 @@ class AgentBase(ABC):
             if isinstance(env.observation_space, gym.spaces.Dict):
                 action = self.predict({key: np.expand_dims(obs[key], 0) for key in obs}, True)
             else:
-                action = self.predict(np.expand_dims(obs, 0), True)
+                action = self.predict(np.expand_dims(obs.copy(), 0), True)
 
             next_obs, reward, terminated, truncated, info = env.step(action[0])
 

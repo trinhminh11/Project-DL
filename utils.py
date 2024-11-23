@@ -128,6 +128,34 @@ def init_weights(init_type='xavier'):
     else:
         raise NotImplementedError(f'Initialization method {init_type} is not implemented')
 
+class ConvBn(nn.Module):
+	'''
+	Convolution + BatchNorm + ReLu (+ MaxPool)
+
+	keeping the size of input, if Maxpool, reduce the size by half
+	'''
+	def __init__(self, in_channels, out_channels, kernel_size = 3, stride = 1, padding = 1, pool=False) -> None:
+		'''
+		Convolution + BatchNorm + ReLu (+ MaxPool)
+
+		keeping the size of input, if Maxpool, reduce the size by half
+		'''
+		super().__init__()
+		self.Conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
+		self.Bn = nn.BatchNorm2d(out_channels)
+		self.act = nn.ReLU(inplace=True)
+		
+		if pool:
+			self.pool = nn.MaxPool2d(2)
+		else:
+			self.pool = nn.Identity()
+
+	def forward(self, X: torch.Tensor) -> torch.Tensor:
+		out = self.Conv(X)
+		out = self.Bn(out)
+		out = self.act(out)
+		out = self.pool(out)
+		return out
 
 def plotting(filename = None, **kwargs):
     for name, value in kwargs.items():
