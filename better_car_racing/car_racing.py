@@ -611,8 +611,8 @@ class BetterCarRacing(gym.Env, EzPickle):
         super().reset(seed=seed)
         global TRACK_WIDTH
 
-        TRACK_WIDTH = self.np_random.uniform(40, 60) / SCALE
-        # TRACK_WIDTH = 60 / SCALE
+        # TRACK_WIDTH = self.np_random.uniform(40, 60) / SCALE
+        TRACK_WIDTH = 50 / SCALE
 
         self._destroy()
         self.world.contactListener_bug_workaround = FrictionDetector(
@@ -742,7 +742,7 @@ class BetterCarRacing(gym.Env, EzPickle):
                     #     )
 
                     steering_coef = 1
-                    gas_coef = 0.3
+                    gas_coef = 0.8
                     brake_coef = 0.8
                     
                     self.cars[car_id].steer(-steering_coef * (action[car_id] == 1) + steering_coef * (action[car_id] == 2))
