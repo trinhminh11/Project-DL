@@ -779,7 +779,7 @@ class BetterCarRacing(gym.Env, EzPickle):
         terminated = False
         truncated = False
         if action is not None:  # First step without action, called from reset()
-            self.rewards -= 0.25
+            self.rewards -= 0.1
             # We actually don't want to count fuel spent, we want car to be faster.
             # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
             step_rewards = self.rewards - self.prev_rewards
@@ -974,7 +974,7 @@ class BetterCarRacing(gym.Env, EzPickle):
         # showing stats
         self._render_indicators(car_id, WINDOW_W, WINDOW_H, mode)
 
-        if mode == 'human':
+        if mode == 'human' or mode == 'rgb_array':
             font = pygame.font.Font(pygame.font.get_default_font(), 42)
             text = font.render("%04i" % self.true_rewards[car_id], True, (255, 255, 255), (0, 0, 0))
             text_rect = text.get_rect()
