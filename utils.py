@@ -112,7 +112,7 @@ def set_random_seed(seed: int) -> None:
 def init_weights(init_type='xavier'):
     def xavier(m: nn.Module):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
-            torch.nn.init.xavier_normal_(m.weight)
+            torch.nn.init.xavier_normal_(m.weight, gain=0.5)
             m.bias.data.fill_(0)
     
     def kaiming(m: nn.Module):

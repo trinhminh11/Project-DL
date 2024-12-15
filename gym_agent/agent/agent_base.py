@@ -35,9 +35,18 @@ class AgentBase(ABC):
             self,
             policy: nn.Module,
             env: core.EnvWithTransform | gym.Env | str,
+            name = None,
             device: str = 'auto',
             seed = None,
         ):
+        if name == None:
+            name = self.__class__.__name__
+        
+        if not isinstance(name, str):
+            raise ValueError("name must be a string")
+
+        self.name = name
+        
         utils.check_for_nested_spaces(env.observation_space)
         utils.check_for_nested_spaces(env.action_space)
         
@@ -154,7 +163,7 @@ class AgentBase(ABC):
         return ret
 
     def save(self, dir, *post_names):
-        name = self.__class__.__name__
+        name = self.name
 
         if not os.path.exists(dir):
             os.makedirs(dir)
@@ -165,7 +174,7 @@ class AgentBase(ABC):
         torch.save(self.save_info(), os.path.join(dir, name + ".pth"))
     
     def load(self, dir, *post_names):
-        name = self.__class__.__name__
+        name = self.name
         for post_name in post_names:
             name += "_" + str(post_name)
 
@@ -224,15 +233,18 @@ class AgentBase(ABC):
 
         # Use tqdm for progress bar if provided
         if total_timesteps:
-            loop = progress_bar(range(total_timesteps-self.total_timesteps)) if progress_bar else range(total_timesteps)
+            loop = progress_bar(range(total_timesteps)) if progress_bar else range(total_timesteps)
             used_timesteps = True
         else:
-            loop = progress_bar(range(n_games-self.episode)) if progress_bar else range(n_games)
+            loop = progress_bar(range(n_games)) if progress_bar else range(n_games)
             used_timesteps = False
         
         callbacks.on_train_begin()
 
         best_score = float('-inf')
+
+        start_episode = self.episode    
+        start_timesteps = self.total_timesteps
 
         while True:
             score, timesteps = self.train_on_episode(deterministic, callbacks)
@@ -258,19 +270,19 @@ class AgentBase(ABC):
                     loop.update(timesteps)
                     loop.set_postfix({"episode": self.episode, "time_step": self.total_timesteps, "avg_score": avg_score, "score": self.scores[-1]})
 
-                if self.total_timesteps >= total_timesteps:
+                if self.total_timesteps >= total_timesteps + start_timesteps:
                     break
             else:
                 if progress_bar:
                     loop.update(1)
                     loop.set_postfix({"episode": self.episode, "time_step": self.total_timesteps, "avg_score": avg_score, "score": self.scores[-1]})
 
-                if self.episode >= n_games:
+                if self.episode >= n_games + start_episode:
                     break
 
         callbacks.on_train_end()
     
-    def play(self, env: core.EnvWithTransform, stop_if_truncated: bool = False, seed = None) -> float:
+    def play(self, env: core.EnvWithTransform, stop_if_truncated: bool = True, seed = None) -> float:
         self.eval = True
         import pygame
         
@@ -308,7 +320,7 @@ class AgentBase(ABC):
 
         return score
     
-    def play_jupyter(self, env: core.EnvWithTransform, stop_if_truncated: bool = False, seed = None, FPS = 30) -> float:
+    def play_jupyter(self, env: core.EnvWithTransform, stop_if_truncated: bool = True, seed = None, FPS = 30) -> float:
         self.eval = True
         import pygame
         from IPython.display import display
@@ -358,13 +370,17 @@ class OffPolicyAgent(AgentBase):
             self, 
             policy: nn.Module, 
             env: core.EnvWithTransform | gym.Env | str, 
+            gamma = 0.99,
             buffer_size = int(1e5),
             batch_size: int = 64,
             update_every: int = 1,
+            name = None,
             device = 'auto', 
             seed = None
         ):
-        super().__init__(policy, env, device, seed)
+        super().__init__(policy, env, name, device, seed)
+
+        self.gamma = gamma
 
         self.memory = ReplayBuffer(buffer_size = buffer_size, observation_space = self.dummy_env.observation_space, action_space = self.dummy_env.action_space, device = self.device, n_envs = self.n_envs, seed = self.seed)
 
@@ -453,10 +469,11 @@ class OnPolicyAgent(AgentBase):
             gae_lambda: float = 0.95,
             buffer_size = int(1e5),
             batch_size: int = 64,
+            name = None,
             device = 'auto', 
             seed = None
         ):
-        super().__init__(policy, env, device, seed)
+        super().__init__(policy, env, name, device, seed)
 
         self.memory = RolloutBuffer(buffer_size = buffer_size, observation_space = self.dummy_env.observation_space, action_space = self.dummy_env.action_space, device = self.device, n_envs = self.n_envs, gamma = gamma, gae_lambda = gae_lambda, seed = self.seed)
 
