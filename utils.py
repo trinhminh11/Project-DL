@@ -109,10 +109,10 @@ def set_random_seed(seed: int) -> None:
 	torch.backends.cudnn.deterministic = True
      
 
-def init_weights(init_type='xavier'):
+def init_weights(init_type='xavier', kwargs: dict = {}):
     def xavier(m: nn.Module):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
-            torch.nn.init.xavier_normal_(m.weight, gain=0.5)
+            torch.nn.init.xavier_normal_(m.weight, **kwargs)
             m.bias.data.fill_(0)
     
     def kaiming(m: nn.Module):

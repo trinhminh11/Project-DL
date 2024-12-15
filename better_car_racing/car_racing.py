@@ -838,11 +838,13 @@ class BetterCarRacing(gym.Env, EzPickle):
                 x, y = self.cars[car_id].hull.position
 
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD\
-                    or self.die_if_grass and self.grassed[car_id]\
-                    or self.n_close[car_id] > 100:
-                    
+                    or (self.die_if_grass and self.grassed[car_id]):
                     terminated = True
                     step_rewards[car_id] = -500
+
+                if self.n_close[car_id] > 100:
+                    terminated = True
+                    step_rewards[car_id] = -1000
         
         # if self.render_mode == "human" or self.render_mode == "human_state":
             # self.render()
